@@ -1,0 +1,40 @@
+
+name: Foundations of IoT Evaluator
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: "Public GitHub URL of the student repository"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out evaluator
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Evaluate student repository
+        env:
+          REPO_URL: ${{ inputs.repo_url }}
+        run: python evaluate.py "$REPO_URL"
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Foundations-of-IoT-Evaluation-Report
+          path: evaluation_report.md
+          if-no-files-found: warn
+          retention-days: 30

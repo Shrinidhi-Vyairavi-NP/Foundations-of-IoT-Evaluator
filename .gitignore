@@ -1,0 +1,17 @@
+
+# Python generated files
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Downloaded student repository
+student_repo/
+
+# Generated evaluation report
+evaluation_report.md
+
+# Local backup
+evaluate_old.py
