@@ -2,7 +2,23 @@
 import subprocess
 import sys
 import tempfile
+import re
 from pathlib import Path
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    HRFlowable,
+    PageBreak,
+    Image 
+)
+from xml.sax.saxutils import escape
 
 # ==================================================
 # CONFIGURATION
@@ -296,7 +312,11 @@ def generate_report(repository):
                 repository
             ).as_posix()
 
+            print("TASK PATH:", task_path.resolve())
+            print("TASK NAME:", task_name)
+
             report.append(f"## {task_name}")
+            report.append(f"<!-- TASK_PATH: {task_path.resolve()} -->")
             report.append("")
             report.append("### File checks")
             report.append("")
@@ -411,6 +431,8 @@ def generate_report(repository):
         encoding="utf-8"
     )
 
+    generate_pdf(repository)
+
     # Display summary.
     print("\n========== EVALUATION SUMMARY ==========")
 
@@ -428,6 +450,296 @@ def generate_report(repository):
     print(REPORT_FILE.resolve())
 
     return overall_passed
+
+# ==================================================
+# PDF GENERATION 
+# ==================================================
+
+def generate_pdf(repository):
+
+    pdf_file = Path("evaluation_report.pdf")
+
+    styles = getSampleStyleSheet()
+
+    # Main title
+    styles.add(ParagraphStyle(
+        name="ReportTitle",
+        parent=styles["Title"],
+        fontSize=21,
+        leading=26,
+        textColor=colors.HexColor("#17365D"),
+        alignment=TA_CENTER,
+        spaceAfter=20
+    ))
+
+    # Platform headings
+    styles.add(ParagraphStyle(
+        name="SectionHeading",
+        parent=styles["Heading1"],
+        fontSize=16,
+        textColor=colors.HexColor("#17365D"),
+        spaceBefore=16,
+        spaceAfter=10
+    ))
+
+    # Task headings
+    styles.add(ParagraphStyle(
+        name="SubHeading",
+        parent=styles["Heading2"],
+        fontSize=13,
+        textColor=colors.HexColor("#2874A6"),
+        spaceBefore=12,
+        spaceAfter=7
+    ))
+
+    styles.add(ParagraphStyle(
+        name="SmallHeading",
+        parent=styles["Heading3"],
+        fontSize=10,
+        textColor=colors.HexColor("#34495E"),
+        spaceBefore=8,
+        spaceAfter=5
+    ))
+
+    styles.add(ParagraphStyle(
+        name="ReportBody",
+        parent=styles["BodyText"],
+        fontSize=9,
+        leading=13,
+        spaceAfter=5
+    ))
+
+    styles.add(ParagraphStyle(
+        name="PassStyle",
+        parent=styles["BodyText"],
+        textColor=colors.HexColor("#16803C"),
+        fontSize=9,
+        leading=13
+    ))
+
+    styles.add(ParagraphStyle(
+        name="FailStyle",
+        parent=styles["BodyText"],
+        textColor=colors.HexColor("#C0392B"),
+        fontSize=9,
+        leading=13
+    ))
+
+    document = SimpleDocTemplate(
+        str(pdf_file),
+        pagesize=A4,
+        rightMargin=20 * mm,
+        leftMargin=20 * mm,
+        topMargin=23 * mm,
+        bottomMargin=20 * mm
+    )
+
+    content = []
+
+    markdown = REPORT_FILE.read_text(encoding="utf-8")
+
+    current_task = None
+
+    for line in markdown.splitlines():
+
+        line = line.strip()
+
+        # Read the exact task directory recorded in the report.
+        task_match = re.match(
+            r"<!-- TASK_PATH: (.*?) -->",
+            line
+        )
+
+        if task_match:
+            current_task = Path(task_match.group(1))
+            continue
+
+        if not line:
+            content.append(Spacer(1, 5))
+            continue
+
+        # Separators
+        if line == "---":
+            content.append(HRFlowable(
+                width="100%",
+                color=colors.HexColor("#D5DDE5"),
+                thickness=0.8
+            ))
+            content.append(Spacer(1, 8))
+            continue
+
+        # Main title
+        if line.startswith("# "):
+
+            text = escape(line[2:])
+
+            content.append(
+                Paragraph(text, styles["ReportTitle"])
+            )
+
+            continue
+
+        # Task heading
+        if line.startswith("## "):
+
+            heading = line[3:]
+            
+            content.append(
+                Paragraph(
+                    escape(heading),
+                    styles["SectionHeading"]
+                )
+            )
+
+            continue
+
+        # Subheading
+        if line.startswith("### "):
+
+            content.append(
+                Paragraph(
+                    escape(line[4:]),
+                    styles["SmallHeading"]
+                )
+            )
+
+            continue
+
+        # Markdown image
+        image_match = re.match(
+            r"!\[(.*?)\]\((.*?)\)",
+            line
+        )
+
+        if image_match:
+
+            image_path = image_match.group(2).strip()
+
+            if current_task is not None:
+
+                full_image_path = (
+                    current_task / image_path
+                ).resolve()
+
+
+                print("\n--- IMAGE DEBUG ---")
+                print("Repository:", repository.resolve())
+                print("Current task:", current_task.resolve())
+                print("Image path from README:", image_path)
+                print("Full image path:", full_image_path)
+                print("File exists:", full_image_path.is_file())
+                print("-------------------\n")
+
+                if full_image_path.is_file():
+
+                    img = Image(str(full_image_path))
+
+                    max_width = 160 * mm
+                    max_height = 110 * mm
+
+                    scale = min(
+                        max_width / img.imageWidth,
+                        max_height / img.imageHeight,
+                        1
+                    )
+
+                    img.drawWidth = img.imageWidth * scale
+                    img.drawHeight = img.imageHeight * scale
+
+                    content.append(Spacer(1, 8))
+                    content.append(img)
+                    content.append(Spacer(1, 10))
+
+                else:
+
+                    content.append(
+                        Paragraph(
+                            "[Diagram not found: "
+                            + escape(image_path) + "]",
+                            styles["FailStyle"]
+                        )
+                    )
+
+            continue
+
+        # PASS / FAIL formatting
+        if line.startswith("- [PASS]"):
+
+            content.append(
+                Paragraph(
+                    escape(line),
+                    styles["PassStyle"]
+                )
+            )
+
+            continue
+
+        if line.startswith("- [FAIL]"):
+
+            content.append(
+                Paragraph(
+                    escape(line),
+                    styles["FailStyle"]
+                )
+            )
+
+            continue
+
+        # Normal text
+        text = escape(line)
+
+        text = text.replace("**", "")
+        text = text.replace("`", "")
+
+        content.append(
+            Paragraph(text, styles["ReportBody"])
+        )
+
+    # Header and footer
+    def add_page_details(canvas, doc):
+
+        canvas.saveState()
+
+        page_width, page_height = A4
+
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(
+            colors.HexColor("#64748B")
+        )
+
+        canvas.drawString(
+            20 * mm,
+            page_height - 13 * mm,
+            "FOUNDATIONS OF IoT | EVALUATION REPORT"
+        )
+
+        canvas.drawRightString(
+            page_width - 20 * mm,
+            12 * mm,
+            f"Page {doc.page}"
+        )
+
+        canvas.setStrokeColor(
+            colors.HexColor("#D5DDE5")
+        )
+
+        canvas.line(
+            20 * mm,
+            page_height - 16 * mm,
+            page_width - 20 * mm,
+            page_height - 16 * mm
+        )
+
+        canvas.restoreState()
+
+    document.build(
+        content,
+        onFirstPage=add_page_details,
+        onLaterPages=add_page_details
+    )
+
+    print("\nPDF report saved to:")
+    print(pdf_file.resolve())
 
 
 # ==================================================
