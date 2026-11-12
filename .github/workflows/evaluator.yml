@@ -39,7 +39,7 @@ jobs:
         with:
           name: Foundations-of-IoT-Evaluation-Report
           path: |
-          evaluation_report.md
-          evaluation_report.pdf
+            evaluation_report.md
+            evaluation_report.pdf
           if-no-files-found: warn
           retention-days: 30
