@@ -23,7 +23,8 @@ Because GitHub Actions workflows can only be triggered by repository owners, you
 
 1. Make sure you are logged into your GitHub account.
 2. On this evaluator repository page, make sure you are on the **Code** tab (top-left).
-3. Click the green **Use this template** button near the top-right (next to the **Code** button), and select **Create a new repository**.
+3. Click the green **Use this template** button near the top-right and select **Create a new repository**.
+![GitHub Actions workflow input](steps/use_template.png)
 4. Enter a repository name (for example, `FIoT-Evaluator`).
 5. Set the visibility to **Public** or **Private** (either works for your evaluator copy).
 6. Click **Create repository**.
