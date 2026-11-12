@@ -12,6 +12,10 @@ student_repo/
 
 # Generated evaluation report
 evaluation_report.md
+evaluation_report.pdf 
 
 # Local backup
 evaluate_old.py
+evaluate_batch.py 
+evaluate_fixed.py
+evaluate_test.py

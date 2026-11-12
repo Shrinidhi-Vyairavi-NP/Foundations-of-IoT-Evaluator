@@ -16,7 +16,9 @@ from reportlab.platypus import (
     Spacer,
     HRFlowable,
     PageBreak,
-    Image 
+    Image,
+    Table,
+    TableStyle
 )
 from xml.sax.saxutils import escape
 
@@ -271,6 +273,15 @@ def generate_report(repository):
     passed_checks = 0
 
     platform_failures = []
+    platform_summary = {
+        platform: {
+            "tasks": 0,
+            "passed": 0,
+            "failed": 0,
+            "error": None
+        }
+        for platform in PLATFORMS
+    }
 
     report.append("# Foundations of IoT - Evaluation Report")
     report.append("")
@@ -291,6 +302,7 @@ def generate_report(repository):
             report.append("")
 
             platform_failures.append(platform)
+            platform_summary[platform]["error"] = "Platform folder is missing"
             continue
 
         tasks = discover_tasks(platform_path, platform)
@@ -301,12 +313,14 @@ def generate_report(repository):
             report.append("")
 
             platform_failures.append(platform)
+            platform_summary[platform]["error"] = "No project folders found"
             continue
 
         # Evaluate every discovered project.
         for task_path in tasks:
 
             total_tasks += 1
+            platform_summary[platform]["tasks"] += 1
 
             task_name = task_path.relative_to(
                 repository
@@ -387,9 +401,11 @@ def generate_report(repository):
 
             if task_passed:
                 passed_tasks += 1
+                platform_summary[platform]["passed"] += 1
 
             else:
                 failed_tasks += 1
+                platform_summary[platform]["failed"] += 1
 
     # ==================================================
     # OVERALL SUMMARY
@@ -431,7 +447,18 @@ def generate_report(repository):
         encoding="utf-8"
     )
 
-    generate_pdf(repository)
+    generate_pdf(
+        repository,
+        {
+            "total_tasks": total_tasks,
+            "passed_tasks": passed_tasks,
+            "failed_tasks": failed_tasks,
+            "passed_checks": passed_checks,
+            "total_checks": total_checks,
+            "status": status,
+            "platform_summary": platform_summary
+        }
+    )
 
     # Display summary.
     print("\n========== EVALUATION SUMMARY ==========")
@@ -455,101 +482,171 @@ def generate_report(repository):
 # PDF GENERATION 
 # ==================================================
 
-def generate_pdf(repository):
-
+def generate_pdf(repository, summary):
     pdf_file = Path("evaluation_report.pdf")
-
     styles = getSampleStyleSheet()
 
-    # Main title
     styles.add(ParagraphStyle(
-        name="ReportTitle",
-        parent=styles["Title"],
-        fontSize=21,
-        leading=26,
+        name="ReportTitle", parent=styles["Title"],
+        fontSize=21, leading=26,
         textColor=colors.HexColor("#17365D"),
-        alignment=TA_CENTER,
-        spaceAfter=20
+        alignment=TA_CENTER, spaceAfter=20
     ))
-
-    # Platform headings
     styles.add(ParagraphStyle(
-        name="SectionHeading",
-        parent=styles["Heading1"],
-        fontSize=16,
-        textColor=colors.HexColor("#17365D"),
-        spaceBefore=16,
-        spaceAfter=10
+        name="SectionHeading", parent=styles["Heading1"],
+        fontSize=16, textColor=colors.HexColor("#17365D"),
+        spaceBefore=16, spaceAfter=10
     ))
-
-    # Task headings
     styles.add(ParagraphStyle(
-        name="SubHeading",
-        parent=styles["Heading2"],
-        fontSize=13,
-        textColor=colors.HexColor("#2874A6"),
-        spaceBefore=12,
-        spaceAfter=7
+        name="SubHeading", parent=styles["Heading2"],
+        fontSize=13, textColor=colors.HexColor("#2874A6"),
+        spaceBefore=12, spaceAfter=7
     ))
-
     styles.add(ParagraphStyle(
-        name="SmallHeading",
-        parent=styles["Heading3"],
-        fontSize=10,
-        textColor=colors.HexColor("#34495E"),
-        spaceBefore=8,
-        spaceAfter=5
+        name="SmallHeading", parent=styles["Heading3"],
+        fontSize=10, textColor=colors.HexColor("#34495E"),
+        spaceBefore=8, spaceAfter=5
     ))
-
     styles.add(ParagraphStyle(
-        name="ReportBody",
-        parent=styles["BodyText"],
-        fontSize=9,
-        leading=13,
-        spaceAfter=5
+        name="ReportBody", parent=styles["BodyText"],
+        fontSize=9, leading=13, spaceAfter=5
     ))
-
     styles.add(ParagraphStyle(
-        name="PassStyle",
-        parent=styles["BodyText"],
-        textColor=colors.HexColor("#16803C"),
-        fontSize=9,
-        leading=13
+        name="PassStyle", parent=styles["BodyText"],
+        textColor=colors.HexColor("#16803C"), fontSize=9, leading=13
     ))
-
     styles.add(ParagraphStyle(
-        name="FailStyle",
-        parent=styles["BodyText"],
-        textColor=colors.HexColor("#C0392B"),
-        fontSize=9,
-        leading=13
+        name="FailStyle", parent=styles["BodyText"],
+        textColor=colors.HexColor("#C0392B"), fontSize=9, leading=13
     ))
 
     document = SimpleDocTemplate(
-        str(pdf_file),
-        pagesize=A4,
-        rightMargin=20 * mm,
-        leftMargin=20 * mm,
-        topMargin=23 * mm,
-        bottomMargin=20 * mm
+        str(pdf_file), pagesize=A4,
+        rightMargin=20 * mm, leftMargin=20 * mm,
+        topMargin=23 * mm, bottomMargin=20 * mm
     )
-
     content = []
-
     markdown = REPORT_FILE.read_text(encoding="utf-8")
-
     current_task = None
 
-    for line in markdown.splitlines():
+    # Cover page
+    content.append(Spacer(1, 30 * mm))
+    content.append(Paragraph("FOUNDATIONS OF IoT", styles["ReportTitle"]))
+    content.append(Paragraph(
+        "STUDENT REPOSITORY EVALUATION REPORT",
+        styles["SectionHeading"]
+    ))
+    content.append(Spacer(1, 8 * mm))
+    content.append(Paragraph(
+        f"<b>Repository:</b> {escape(repository.name)}",
+        styles["ReportBody"]
+    ))
+    content.append(Spacer(1, 12 * mm))
 
+    status_color = (
+        colors.HexColor("#16803C")
+        if summary["status"] == "PASSED"
+        else colors.HexColor("#C0392B")
+    )
+    status_table = Table([[
+        Paragraph(
+            f"<b>OVERALL STATUS: {summary['status']}</b>",
+            ParagraphStyle(
+                "StatusText", parent=styles["ReportBody"],
+                fontSize=15, alignment=TA_CENTER,
+                textColor=colors.white
+            )
+        )
+    ]], colWidths=[170 * mm])
+    status_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), status_color),
+        ("BOX", (0, 0), (-1, -1), 0.5, status_color),
+        ("TOPPADDING", (0, 0), (-1, -1), 12),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 12),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE")
+    ]))
+    content.append(status_table)
+    content.append(Spacer(1, 12 * mm))
+
+    content.append(Paragraph("Evaluation Summary", styles["SectionHeading"]))
+    summary_data = [
+        ["Tasks Discovered", "Tasks Passed"],
+        [str(summary["total_tasks"]), str(summary["passed_tasks"])],
+        ["Tasks Failed", "File Checks Passed"],
+        [
+            str(summary["failed_tasks"]),
+            f"{summary['passed_checks']} / {summary['total_checks']}"
+        ]
+    ]
+    summary_table = Table(
+        summary_data, colWidths=[85 * mm, 85 * mm],
+        rowHeights=[10 * mm, 15 * mm, 10 * mm, 15 * mm]
+    )
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+        ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("TEXTCOLOR", (0, 2), (-1, 2), colors.white),
+        ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#EAF0F6")),
+        ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#EAF0F6")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7)
+    ]))
+    content.append(summary_table)
+    content.append(Spacer(1, 12 * mm))
+
+    content.append(Paragraph("Platform-wise Results", styles["SectionHeading"]))
+    platform_data = [["Platform", "Tasks", "Passed", "Failed"]]
+    for platform in PLATFORMS:
+        result = summary["platform_summary"][platform]
+        platform_data.append([
+            platform, str(result["tasks"]),
+            str(result["passed"]), str(result["failed"])
+        ])
+        if result["error"]:
+            platform_data.append([
+                Paragraph(
+                    f"{platform}: {escape(result['error'])}",
+                    styles["FailStyle"]
+                ), "", "", ""
+            ])
+
+    platform_table = Table(
+        platform_data, colWidths=[50 * mm, 35 * mm, 35 * mm, 50 * mm]
+    )
+    platform_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#EAF0F6")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.white),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8)
+    ]))
+    content.append(platform_table)
+    content.append(Spacer(1, 10 * mm))
+    content.append(Paragraph(
+        "The following pages contain the detailed task evaluation, "
+        "file checks and README content.",
+        styles["ReportBody"]
+    ))
+    content.append(PageBreak())
+
+    # Detailed report from Markdown
+    for line in markdown.splitlines():
         line = line.strip()
 
-        # Read the exact task directory recorded in the report.
-        task_match = re.match(
-            r"<!-- TASK_PATH: (.*?) -->",
-            line
-        )
+        if line == "# Foundations of IoT - Evaluation Report":
+            continue
+        if line.startswith("Repository:"):
+            continue
 
+        task_match = re.match(r"<!-- TASK_PATH: (.*?) -->", line)
         if task_match:
             current_task = Path(task_match.group(1))
             continue
@@ -558,70 +655,35 @@ def generate_pdf(repository):
             content.append(Spacer(1, 5))
             continue
 
-        # Separators
         if line == "---":
             content.append(HRFlowable(
-                width="100%",
-                color=colors.HexColor("#D5DDE5"),
+                width="100%", color=colors.HexColor("#D5DDE5"),
                 thickness=0.8
             ))
             content.append(Spacer(1, 8))
             continue
 
-        # Main title
         if line.startswith("# "):
-
-            text = escape(line[2:])
-
-            content.append(
-                Paragraph(text, styles["ReportTitle"])
-            )
-
+            content.append(Paragraph(escape(line[2:]), styles["ReportTitle"]))
             continue
 
-        # Task heading
         if line.startswith("## "):
-
-            heading = line[3:]
-            
-            content.append(
-                Paragraph(
-                    escape(heading),
-                    styles["SectionHeading"]
-                )
-            )
-
+            content.append(Paragraph(
+                escape(line[3:]), styles["SectionHeading"]
+            ))
             continue
 
-        # Subheading
         if line.startswith("### "):
-
-            content.append(
-                Paragraph(
-                    escape(line[4:]),
-                    styles["SmallHeading"]
-                )
-            )
-
+            content.append(Paragraph(
+                escape(line[4:]), styles["SmallHeading"]
+            ))
             continue
 
-        # Markdown image
-        image_match = re.match(
-            r"!\[(.*?)\]\((.*?)\)",
-            line
-        )
-
+        image_match = re.match(r"!\[(.*?)\]\((.*?)\)", line)
         if image_match:
-
             image_path = image_match.group(2).strip()
-
             if current_task is not None:
-
-                full_image_path = (
-                    current_task / image_path
-                ).resolve()
-
-
+                full_image_path = (current_task / image_path).resolve()
                 print("\n--- IMAGE DEBUG ---")
                 print("Repository:", repository.resolve())
                 print("Current task:", current_task.resolve())
@@ -631,105 +693,54 @@ def generate_pdf(repository):
                 print("-------------------\n")
 
                 if full_image_path.is_file():
-
                     img = Image(str(full_image_path))
-
                     max_width = 160 * mm
                     max_height = 110 * mm
-
                     scale = min(
                         max_width / img.imageWidth,
                         max_height / img.imageHeight,
                         1
                     )
-
                     img.drawWidth = img.imageWidth * scale
                     img.drawHeight = img.imageHeight * scale
-
                     content.append(Spacer(1, 8))
                     content.append(img)
                     content.append(Spacer(1, 10))
-
                 else:
-
-                    content.append(
-                        Paragraph(
-                            "[Diagram not found: "
-                            + escape(image_path) + "]",
-                            styles["FailStyle"]
-                        )
-                    )
-
+                    content.append(Paragraph(
+                        "[Diagram not found: " + escape(image_path) + "]",
+                        styles["FailStyle"]
+                    ))
             continue
 
-        # PASS / FAIL formatting
         if line.startswith("- [PASS]"):
-
-            content.append(
-                Paragraph(
-                    escape(line),
-                    styles["PassStyle"]
-                )
-            )
-
+            content.append(Paragraph(escape(line), styles["PassStyle"]))
             continue
 
         if line.startswith("- [FAIL]"):
-
-            content.append(
-                Paragraph(
-                    escape(line),
-                    styles["FailStyle"]
-                )
-            )
-
+            content.append(Paragraph(escape(line), styles["FailStyle"]))
             continue
 
-        # Normal text
-        text = escape(line)
+        text = escape(line).replace("**", "").replace("`", "")
+        content.append(Paragraph(text, styles["ReportBody"]))
 
-        text = text.replace("**", "")
-        text = text.replace("`", "")
-
-        content.append(
-            Paragraph(text, styles["ReportBody"])
-        )
-
-    # Header and footer
     def add_page_details(canvas, doc):
-
         canvas.saveState()
-
         page_width, page_height = A4
-
         canvas.setFont("Helvetica", 8)
-        canvas.setFillColor(
-            colors.HexColor("#64748B")
-        )
-
+        canvas.setFillColor(colors.HexColor("#64748B"))
         canvas.drawString(
-            20 * mm,
-            page_height - 13 * mm,
+            20 * mm, page_height - 13 * mm,
             "FOUNDATIONS OF IoT | EVALUATION REPORT"
         )
-
         canvas.drawRightString(
-            page_width - 20 * mm,
-            12 * mm,
-            f"Page {doc.page}"
+            page_width - 20 * mm, 12 * mm, f"Page {doc.page}"
         )
-
-        canvas.setStrokeColor(
-            colors.HexColor("#D5DDE5")
-        )
-
+        canvas.setStrokeColor(colors.HexColor("#D5DDE5"))
         canvas.line(
-            20 * mm,
-            page_height - 16 * mm,
-            page_width - 20 * mm,
-            page_height - 16 * mm
+            20 * mm, page_height - 16 * mm,
+            page_width - 20 * mm, page_height - 16 * mm
         )
-
         canvas.restoreState()
 
     document.build(
@@ -737,7 +748,6 @@ def generate_pdf(repository):
         onFirstPage=add_page_details,
         onLaterPages=add_page_details
     )
-
     print("\nPDF report saved to:")
     print(pdf_file.resolve())
 
