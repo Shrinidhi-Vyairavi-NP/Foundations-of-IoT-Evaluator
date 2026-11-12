@@ -79,17 +79,18 @@ The status indicators mean:
 After the workflow finishes:
 
 1. Open the completed workflow run.
-2. Scroll down to the **Artifacts** section.
+2. Go inside Summary
+3. Scroll down to the **Artifacts** section.
 
 ![GitHub Actions workflow input](steps/download_zip.jpeg)
 
-3. Find the artifact named:
+4. Find the artifact named:
 
    `Foundations-of-IoT-Evaluation-Report`
 
-4. Click the artifact name to download it.
-5. GitHub will download a ZIP file.
-6. Extract the ZIP file on your computer.
+5. Click the artifact name to download it.
+6. GitHub will download a ZIP file.
+7. Extract the ZIP file on your computer.
 
 You will find the evaluation report inside.
 
