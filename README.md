@@ -23,14 +23,20 @@ Example repository URL:
 2. Make sure you are logged into your GitHub account.
 3. Navigate to the **Actions** tab at the top of the repository.
 
+![GitHub Actions workflow input](steps/actions.jpeg)
+
 ## 3. Select the Evaluation Workflow
 
 1. On the left-hand sidebar, find the workflow named:
 
    **Foundations of IoT Evaluator**
 
+![GitHub Actions workflow input](steps/evaluator_workflow.jpeg)
+
 2. Click the workflow name.
 3. You should see a **Run workflow** button on the right-hand side.
+
+![GitHub Actions workflow input](steps/run_workflow.jpeg)
 
 ## 4. Run the Evaluation
 
@@ -50,6 +56,8 @@ Example repository URL:
 
 Your evaluation will now begin.
 
+![GitHub Actions workflow input](steps/upload_gitlink.jpeg)
+
 ## 5. Wait for the Evaluation to Complete
 
 1. GitHub will create a new workflow run.
@@ -62,6 +70,8 @@ The status indicators mean:
 - **Green:** Workflow completed successfully.
 - **Red:** Workflow encountered an error.
 
+![GitHub Actions workflow input](steps/evaluation_process.jpeg)
+
 **Note:** A green workflow status means the evaluation process completed successfully. It does not necessarily mean that your repository passed all evaluation checks.
 
 ## 6. Download Your Evaluation Report
@@ -70,6 +80,9 @@ After the workflow finishes:
 
 1. Open the completed workflow run.
 2. Scroll down to the **Artifacts** section.
+
+![GitHub Actions workflow input](steps/download_zip.jpeg)
+
 3. Find the artifact named:
 
    `Foundations-of-IoT-Evaluation-Report`
