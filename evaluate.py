@@ -4,6 +4,7 @@ import sys
 import tempfile
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -27,6 +28,12 @@ from xml.sax.saxutils import escape
 # ==================================================
 
 PLATFORMS = ["8051", "STM32"]
+
+# Required CAT folders for the course submission.
+REQUIRED_CATS = {
+    "8051": [f"CAT{i}" for i in range(2, 8)],
+    "STM32": [f"CAT{i}" for i in range(8, 16)]
+}
 
 REPORT_FILE = Path("evaluation_report.md")
 
@@ -56,6 +63,14 @@ def clone_repository(repo_url, destination):
 # ==================================================
 # PROJECT IDENTIFICATION
 # ==================================================
+
+def normalize_cat_name(folder_name):
+    """Convert CAT folder variants such as 'cat 2' or 'Cat2' to 'CAT2'."""
+    match = re.fullmatch(r"CAT\s*(\d+)", folder_name.strip(), re.IGNORECASE)
+    if not match:
+        return None
+    return f"CAT{int(match.group(1))}"
+
 
 def has_project_files(folder, platform):
 
@@ -261,7 +276,7 @@ def read_readme(task_path):
 # REPORT GENERATION
 # ==================================================
 
-def generate_report(repository):
+def generate_report(repository, repository_name):
 
     report = []
 
@@ -273,6 +288,9 @@ def generate_report(repository):
     passed_checks = 0
 
     platform_failures = []
+    missing_cats = []
+    cats_without_projects = []
+    duplicate_cats = []
     platform_summary = {
         platform: {
             "tasks": 0,
@@ -285,7 +303,7 @@ def generate_report(repository):
 
     report.append("# Foundations of IoT - Evaluation Report")
     report.append("")
-    report.append(f"Repository: `{repository.name}`")
+    report.append(f"Repository: `{repository_name}`")
     report.append("")
 
     # Evaluate both platforms.
@@ -303,20 +321,66 @@ def generate_report(repository):
 
             platform_failures.append(platform)
             platform_summary[platform]["error"] = "Platform folder is missing"
+            missing_cats.extend(
+                (platform, cat_name) for cat_name in REQUIRED_CATS[platform]
+            )
             continue
 
+        # Discover projects, but count only the CAT folders required for
+        # this platform. Extra folders must not substitute for a required CAT.
+        # Match CAT folders without regard to capitalization or the optional
+        # space between CAT and its number (e.g. CAT2, cat2, Cat 2).
+        cat_folder_map = {}
+        for folder in platform_path.iterdir():
+            if not folder.is_dir() or folder.name.startswith("."):
+                continue
+            canonical_name = normalize_cat_name(folder.name)
+            if canonical_name in REQUIRED_CATS[platform]:
+                cat_folder_map.setdefault(canonical_name, []).append(folder)
+
+        for cat_name in REQUIRED_CATS[platform]:
+            matches = cat_folder_map.get(cat_name, [])
+            if not matches:
+                missing_cats.append((platform, cat_name))
+            elif len(matches) > 1:
+                # Two differently-spelled folders for the same CAT are
+                # ambiguous, so do not silently choose one.
+                duplicate_cats.append((platform, cat_name, [f.name for f in matches]))
+
+        # Discover projects, then keep only projects belonging to uniquely
+        # matched required CAT folders.
         tasks = discover_tasks(platform_path, platform)
+        allowed_folder_names = {
+            folders[0].name
+            for cat_name, folders in cat_folder_map.items()
+            if cat_name in REQUIRED_CATS[platform] and len(folders) == 1
+        }
+        tasks = [
+            task_path for task_path in tasks
+            if task_path.relative_to(platform_path).parts
+            and task_path.relative_to(platform_path).parts[0] in allowed_folder_names
+        ]
+
+        discovered_cat_folders = {
+            normalize_cat_name(task_path.relative_to(platform_path).parts[0])
+            for task_path in tasks
+        }
+
+        for cat_name in REQUIRED_CATS[platform]:
+            if cat_name in cat_folder_map and len(cat_folder_map[cat_name]) == 1 \
+                    and cat_name not in discovered_cat_folders:
+                cats_without_projects.append((platform, cat_name))
 
         if not tasks:
 
-            report.append("**FAIL: No project folders found.**")
+            report.append("**FAIL: No required CAT project folders found.**")
             report.append("")
 
             platform_failures.append(platform)
-            platform_summary[platform]["error"] = "No project folders found"
+            platform_summary[platform]["error"] = "No required CAT project folders found"
             continue
 
-        # Evaluate every discovered project.
+        # Evaluate every discovered project inside a required CAT folder.
         for task_path in tasks:
 
             total_tasks += 1
@@ -415,17 +479,44 @@ def generate_report(repository):
         total_tasks > 0
         and failed_tasks == 0
         and len(platform_failures) == 0
+        and len(missing_cats) == 0
+        and len(cats_without_projects) == 0
+        and len(duplicate_cats) == 0
     )
 
     report.append("# Overall Summary")
     report.append("")
 
-    report.append(f"- Tasks discovered: {total_tasks}")
-    report.append(f"- Tasks passed: {passed_tasks}")
-    report.append(f"- Tasks failed: {failed_tasks}")
+    report.append(f"- Required CAT folders: 14")
+    report.append(f"- Projects discovered: {total_tasks}")
+    report.append(f"- Projects passed: {passed_tasks}")
+    report.append(f"- Projects failed: {failed_tasks}")
     report.append(
         f"- File checks passed: {passed_checks}/{total_checks}"
     )
+
+    report.append("")
+    report.append("### Required CAT folder validation")
+    report.append("")
+    for platform in PLATFORMS:
+        for cat_name in REQUIRED_CATS[platform]:
+            if (platform, cat_name) in missing_cats:
+                cat_status = "MISSING"
+            elif any(p == platform and c == cat_name for p, c, _ in duplicate_cats):
+                cat_status = "DUPLICATE FOLDER NAMES"
+            elif (platform, cat_name) in cats_without_projects:
+                cat_status = "PRESENT, BUT NO RECOGNIZED PROJECT"
+            else:
+                cat_status = "FOUND"
+            report.append(f"- [{cat_status}] {platform}/{cat_name}")
+
+    if duplicate_cats:
+        report.append("")
+        report.append("### Duplicate CAT folder names")
+        for platform, cat_name, folder_names in duplicate_cats:
+            report.append(
+                f"- {platform}/{cat_name}: " + ", ".join(f"`{name}`" for name in folder_names)
+            )
 
     if platform_failures:
 
@@ -449,6 +540,7 @@ def generate_report(repository):
 
     generate_pdf(
         repository,
+        repository_name,
         {
             "total_tasks": total_tasks,
             "passed_tasks": passed_tasks,
@@ -456,7 +548,9 @@ def generate_report(repository):
             "passed_checks": passed_checks,
             "total_checks": total_checks,
             "status": status,
-            "platform_summary": platform_summary
+            "platform_summary": platform_summary,
+            "missing_cats": len(missing_cats),
+            "cats_without_projects": len(cats_without_projects)
         }
     )
 
@@ -482,7 +576,7 @@ def generate_report(repository):
 # PDF GENERATION 
 # ==================================================
 
-def generate_pdf(repository, summary):
+def generate_pdf(repository, repository_name, summary):
     pdf_file = Path("evaluation_report.pdf")
     styles = getSampleStyleSheet()
 
@@ -538,7 +632,7 @@ def generate_pdf(repository, summary):
     ))
     content.append(Spacer(1, 8 * mm))
     content.append(Paragraph(
-        f"<b>Repository:</b> {escape(repository.name)}",
+        f"<b>Repository:</b> {escape(repository_name)}",
         styles["ReportBody"]
     ))
     content.append(Spacer(1, 12 * mm))
@@ -570,25 +664,33 @@ def generate_pdf(repository, summary):
 
     content.append(Paragraph("Evaluation Summary", styles["SectionHeading"]))
     summary_data = [
-        ["Tasks Discovered", "Tasks Passed"],
-        [str(summary["total_tasks"]), str(summary["passed_tasks"])],
-        ["Tasks Failed", "File Checks Passed"],
-        [
-            str(summary["failed_tasks"]),
-            f"{summary['passed_checks']} / {summary['total_checks']}"
-        ]
+        ["Required CAT Folders", "Projects Discovered"],
+        ["14", str(summary["total_tasks"])],
+        ["Projects Passed", "Projects Failed"],
+        [str(summary["passed_tasks"]), str(summary["failed_tasks"])],
+        ["Missing CAT Folders", "CATs Without Projects"],
+        [str(summary["missing_cats"]), str(summary["cats_without_projects"])],
+        ["File Checks Passed", ""],
+        [f"{summary['passed_checks']} / {summary['total_checks']}", ""]
     ]
     summary_table = Table(
         summary_data, colWidths=[85 * mm, 85 * mm],
-        rowHeights=[10 * mm, 15 * mm, 10 * mm, 15 * mm]
+        rowHeights=[10 * mm, 13 * mm, 10 * mm, 13 * mm,
+                    10 * mm, 13 * mm, 10 * mm, 13 * mm]
     )
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#17365D")),
         ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#17365D")),
+        ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#17365D")),
+        ("BACKGROUND", (0, 6), (-1, 6), colors.HexColor("#17365D")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("TEXTCOLOR", (0, 2), (-1, 2), colors.white),
+        ("TEXTCOLOR", (0, 4), (-1, 4), colors.white),
+        ("TEXTCOLOR", (0, 6), (-1, 6), colors.white),
         ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#EAF0F6")),
         ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#EAF0F6")),
+        ("BACKGROUND", (0, 5), (-1, 5), colors.HexColor("#EAF0F6")),
+        ("BACKGROUND", (0, 7), (-1, 7), colors.HexColor("#EAF0F6")),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.white),
@@ -768,19 +870,32 @@ def main():
             "Enter the public GitHub repository URL: "
         ).strip()
 
-    if not repo_url.startswith("https://github.com/"):
+    parsed_url = urlparse(repo_url)
+    path_parts = [part for part in parsed_url.path.strip("/").split("/") if part]
 
-        print("ERROR: Please enter a valid GitHub HTTPS URL.")
+    if (
+        parsed_url.scheme != "https"
+        or parsed_url.netloc.lower() != "github.com"
+        or len(path_parts) < 2
+    ):
+        print("ERROR: Please enter a valid GitHub repository URL.")
+        return False
+
+    repository_name = path_parts[1].removesuffix(".git")
+    if not repository_name:
+        print("ERROR: Could not determine the repository name from the URL.")
         return False
 
     with tempfile.TemporaryDirectory() as temp_dir:
 
+        # The temporary clone folder can keep its internal name; reports use
+        # the actual repository name parsed from the submitted GitHub URL.
         repository = Path(temp_dir) / "student_repo"
 
         if not clone_repository(repo_url, repository):
             return False
 
-        return generate_report(repository)
+        return generate_report(repository, repository_name)
 
 
 # ==================================================
